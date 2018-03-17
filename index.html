@@ -1,0 +1,177 @@
+<h1 id="number-theory-using-rusts-type-system">Number Theory using Rust's type system</h1>
+<p>Rust does not have dependent types, or GADTs like Haskell, but with a few tricks, we can use Rust's type system to emulate an Idris-like number system.</p>
+<p>This is not meant to be a proper introduction into Number Theory or Rust or Rust's type system, so at places, I'll use <em>non proper mathematical</em> notation and methods to explain.</p>
+<h2 id="precursor">Precursor</h2>
+<p>Before you read this, some basic knowledge of number theory, as well as knowledge of Rust's trait system and generics would be necessary.</p>
+<ul>
+<li><a href="https://en.wikipedia.org/wiki/Number_theory">Number Theory - Wikipedia</a></li>
+<li><a href="https://doc.rust-lang.org/book/second-edition/ch10-00-generics.html">Generics - TRPL</a></li>
+<li><a href="https://doc.rust-lang.org/book/second-edition/ch10-02-traits.html">Traits - TRPL</a></li>
+</ul>
+<h2 id="values">Values</h2>
+<p>First, we need a type to represent the values.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="at">#[</span>derive<span class="at">(</span><span class="bu">Debug</span><span class="at">,</span> <span class="bu">Clone</span><span class="at">,</span> <span class="bu">Copy</span><span class="at">)]</span>
+<span class="kw">struct</span> Z;
+<span class="at">#[</span>derive<span class="at">(</span><span class="bu">Debug</span><span class="at">,</span> <span class="bu">Clone</span><span class="at">,</span> <span class="bu">Copy</span><span class="at">)]</span>
+<span class="kw">struct</span> S&lt;T&gt;(T);</code></pre></div>
+<p><code>Z</code> and <code>S(T)</code> are only types, they cannot represent any actual values. To do this, we are going to need to connect them to actual values.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="at">#[</span>derive<span class="at">(</span><span class="bu">Debug</span><span class="at">,</span> <span class="bu">Clone</span><span class="at">,</span> <span class="bu">Copy</span><span class="at">)]</span>
+<span class="kw">struct</span> Nat&lt;T&gt;(T);
+
+<span class="kw">const</span> Zero: Nat&lt;Z&gt; = Nat(Z);</code></pre></div>
+<p>Here, we have an actual value, <code>Zero</code>. This is the number <code>0</code>, and the basis where we are going to build upon for our system. Now lets add in the rest of the positive integers.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">fn</span> Succ&lt;A&gt;(d: Nat&lt;A&gt;) -&gt; Nat&lt;S&lt;A&gt;&gt; {
+    Nat(S(d.<span class="dv">0</span>))
+}</code></pre></div>
+<p>This function allows us to work out the next value. Let's test this out.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">fn</span> main() {
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, Succ(Zero));
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, Succ(Succ(Zero)));
+}</code></pre></div>
+<p><strong>Output:</strong></p>
+<pre class="nil"><code>Nat(S(Z))
+Nat(S(S(Z)))</code></pre>
+<p>It works! The successor to <code>Zero</code> is <code>Nat(S(Z))</code>, which represents the number after zero, also known as <code>One</code>. <code>One</code> has the type <code>Nat&lt;S&lt;Z&gt;&gt;</code>. The next line shows that this works for the successor of <code>One</code>, which gives us <code>Nat(S(Z))</code>. Note that these are not actual values, and simply just different types. Converting these to a Rust unsigned integer is possible, but not the point of the exercise.</p>
+<p>Simply having the set of Natural numbers is rather pointless without the ability to do anything with them. We need to give them the ability to do arithmetic.</p>
+<h2 id="arithmetic">Arithmetic</h2>
+<h3 id="addition">Addition</h3>
+<p>So, what should <code>Nat&lt;N&gt; + Nat&lt;M&gt;</code> be? It is going to be a natural number, but how would we represent that value? Lets start by defining addition here.</p>
+<p>Anything plus <code>Z</code> is itself. Lets start by implementing this. Rust already has a trait for addition, <a href="https://doc.rust-lang.org/std/ops/trait.Add.html"><code>std::ops::Add</code></a>. Lets use this for our numbers.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">use</span> std::ops::Add;
+
+<span class="kw">impl</span>&lt;M&gt; Add&lt;M&gt; <span class="kw">for</span> Z {
+    <span class="kw">type</span> Output = M;
+
+    <span class="kw">fn</span> add(<span class="kw">self</span>, rhs: M) -&gt; M {
+        rhs
+    }
+}</code></pre></div>
+<p>Given the base case of</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="co">// 0 + a = a</span>
+Z + A = A</code></pre></div>
+<p>we can extend this by changing the left hand side of the equation. Say if added 1 to the left hand side by changing it to its successor</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="co">// (0 + 1) + a = ???</span>
+S&lt;Z&gt; + A = ???</code></pre></div>
+<p>When we simplify this down algebraically, we get <code>a + 1</code> on the right hand side. Now, as we have defined <code>S&lt;T&gt;</code> simply to mean the successor to <code>T</code>, which happens to be what we want in this case.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="co">// (0 + 1) + a = a + 1</span>
+Nat&lt;S&lt;Z&gt;&gt; + Nat&lt;A&gt; = Nat&lt;S&lt;A&gt;&gt;</code></pre></div>
+<p>Now lets think about this generically. Say now the left hand side is <code>S&lt;N&gt;</code>, what would we do?</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="co">// (0 + 1 + 1 + ..) + a = ???</span>
+S&lt;N&gt; + A = ???</code></pre></div>
+<p>We can look at this through induction. As we know the answers to <code>Z + A</code> and <code>S&lt;Z&gt; + A</code>, the pattern would imply that the answer to this is</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust">S&lt;N&gt; + A = S&lt;A+N&gt;</code></pre></div>
+<p>Lets try this out and see whether it is correct. This means that we will need to implement this generically for all <code>T</code>, as we do not know what <code>T</code> is.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">impl</span>&lt;M, N, O&gt; Add&lt;M&gt; <span class="kw">for</span> S&lt;N&gt;
+<span class="kw">where</span>
+    N: Add&lt;M, Output = O&gt;,
+{
+    <span class="co">// O = A + N</span>
+    <span class="kw">type</span> Output = S&lt;O&gt;;
+
+    <span class="kw">fn</span> add(<span class="kw">self</span>, rhs: M) -&gt; S&lt;O&gt; {
+        S(<span class="kw">self</span>.<span class="dv">0</span> + rhs)
+    }
+}</code></pre></div>
+<p>Time to test this out and see whether our implementation is correct.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">fn</span> main() {
+    <span class="co">// 1 + 1</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(Z) + S(Z));
+    <span class="co">// 2 + 2</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(S(Z)) + S(S(Z)));
+    <span class="co">// 2 + 3</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(S(Z)) + S(S(S(Z))));
+}</code></pre></div>
+<p><strong>Output:</strong></p>
+<pre class="nil"><code>S(S(Z))
+S(S(S(S(Z))))
+S(S(S(S(S(Z)))))</code></pre>
+<p>We get the correct answers, <code>2</code>, <code>4</code> and <code>5</code> respectively.</p>
+<p>To finish it off, we need to define this for <code>Nat&lt;N&gt;</code>, which we can do like so:</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">impl</span>&lt;M, N, O&gt; Add&lt;Nat&lt;N&gt;&gt; <span class="kw">for</span> Nat&lt;M&gt;
+<span class="kw">where</span>
+    M: Add&lt;N, Output = O&gt;,
+{
+    <span class="kw">type</span> Output = Nat&lt;O&gt;;
+
+    <span class="kw">fn</span> add(<span class="kw">self</span>, rhs: Nat&lt;N&gt;) -&gt; Nat&lt;O&gt; {
+        Nat(<span class="kw">self</span>.<span class="dv">0</span> + rhs.<span class="dv">0</span>)
+    }
+}</code></pre></div>
+<p>This just takes the inner values to the two <code>Nat</code>s and adds them together, wrapping it back into a <code>Nat</code>. Testing this out:</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">fn</span> main() {
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, Succ(Succ(Zero)) + Succ(Zero))
+}</code></pre></div>
+<p><strong>Output:</strong></p>
+<pre class="nil"><code>Nat(S(S(S(Z))))</code></pre>
+<h4 id="proper-explanation">Proper Explanation</h4>
+<p>Each <code>S(N)</code> can be expanded into <code>S(S(T))</code> recursively, until it reaches <code>S(...S(Z))</code>. This means that if there is <code>n</code> 'layers' of <code>S</code>, we just need to add <code>n</code> to the right hand side, which is the <code>n</code>th successor of the right hand side.</p>
+<h3 id="multiplication">Multiplication</h3>
+<p>Now that we have addition, we can define repeated addition, also known as multiplication. Once again, we are going to start with a base case using <code>Z</code>. <code>Z</code> multiplied by anything will give <code>Z</code>. Lets implement this</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">use</span> std::ops::Mul;
+
+<span class="kw">impl</span>&lt;M&gt; Mul&lt;M&gt; <span class="kw">for</span> Z {
+    <span class="kw">type</span> Output = Z;
+
+    <span class="kw">fn</span> mul(<span class="kw">self</span>, _rhs: M) -&gt; Z {
+        Z
+    }
+}</code></pre></div>
+<p>Which shows the following:</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust">Z * S&lt;M&gt; = Z</code></pre></div>
+<p>Now we need to change the left hand side to <code>S&lt;N&gt;</code> to be able to multiply by numbers that are not <code>Z</code>. To do this, we can simplify the multiplication like so:</p>
+<pre class="nil"><code>a * b = b + (a - 1)(b)</code></pre>
+<p>which we can rearrage using our <code>S&lt;N&gt;</code> notation as:</p>
+<pre class="nil"><code>S(a) * b = b + a(b)</code></pre>
+<p>We can then implement it in Rust similar to how we implemented <code>Add</code>.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">impl</span>&lt;M, N, O, P&gt; Mul&lt;M&gt; <span class="kw">for</span> S&lt;N&gt;
+<span class="kw">where</span>
+    N: Mul&lt;M, Output = O&gt;,
+    M: Add&lt;O, Output = P&gt; + <span class="bu">Copy</span>,
+{
+    <span class="kw">type</span> Output = P;
+
+    <span class="kw">fn</span> mul(<span class="kw">self</span>, rhs: M) -&gt; P {
+        rhs.clone() + (<span class="kw">self</span>.<span class="dv">0</span> * rhs)
+    }
+}</code></pre></div>
+<p>Once again, we will need to implement <code>Mul</code> for <code>Nat</code>, as we have only currently implemented <code>Mul</code> for the inner types.</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">impl</span>&lt;M, N, O&gt; Mul&lt;Nat&lt;N&gt;&gt; <span class="kw">for</span> Nat&lt;M&gt;
+<span class="kw">where</span>
+    M: Mul&lt;N, Output = O&gt;,
+{
+    <span class="kw">type</span> Output = Nat&lt;O&gt;;
+
+    <span class="kw">fn</span> mul(<span class="kw">self</span>, rhs: Nat&lt;N&gt;) -&gt; Nat&lt;O&gt; {
+        Nat(<span class="kw">self</span>.<span class="dv">0</span> * rhs.<span class="dv">0</span>)
+    }
+}</code></pre></div>
+<p>Testing this out:</p>
+<div class="sourceCode"><pre class="sourceCode rust"><code class="sourceCode rust"><span class="kw">fn</span> main() {
+    <span class="co">// 1 * 1</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(Z) * S(Z));
+    <span class="co">// 2 * 2</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(S(Z)) * S(S(Z)));
+    <span class="co">// 2 * 3</span>
+    <span class="pp">println!</span>(<span class="st">&quot;{:?}&quot;</span>, S(S(Z)) * S(S(S(Z))));
+}</code></pre></div>
+<p><strong>Output:</strong></p>
+<pre class="nil"><code>S(Z)
+S(S(S(S(Z))))
+S(S(S(S(S(S(Z))))))</code></pre>
+<h2 id="conclusion">Conclusion</h2>
+<p>Rust's type system allows for these simpler number theory examples to be expressed, but with more complex topics, like equality, it becomes much harder to express without currying. Is this an issue? For 99+% of the use cases of Rust, no.</p>
+<p>We have implemented the foundations, upon which feel free to prove other things using it:</p>
+<ul>
+<li>Combination of Addition (<code>a + (b + c) = a + b + c</code>)</li>
+<li>Commutation of Addition (<code>a + b = b + a</code>)</li>
+<li>Combination of Multiplication(<code>a * (b * c) = a * b * c</code>)</li>
+<li>Commutation of Multiplication(<code>a * b = b * a</code>)</li>
+</ul>
+<p>Using <code>Z, S(S(Z)) ...</code> as the even numbers, and <code>S(Z), S(S(S(Z))) ...</code> as the odds, you can try and prove these:</p>
+<ul>
+<li>Odd + Even = Odd</li>
+<li>Odd + Odd = Even</li>
+<li>Even + Even = Even</li>
+<li>Odd * Even = Even</li>
+<li>Odd * Odd = Odd</li>
+</ul>
